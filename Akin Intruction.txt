@@ -1,0 +1,38 @@
+Porchlight — neighborhood community feed
+==========================================
+
+A small working PHP/HTML/CSS/JS app: a social feed with likes, comments,
+and posting, all backed by real PHP (no database needed — data lives in
+the PHP session, so it resets when the session/browser closes).
+
+RUN IT IN XAMPP
+---------------
+1. Copy the whole "porchlight" folder into your XAMPP htdocs directory:
+     Windows: C:\xampp\htdocs\porchlight
+     macOS:   /Applications/XAMPP/htdocs/porchlight
+     Linux:   /opt/lampp/htdocs/porchlight
+2. Open the XAMPP control panel and start Apache (MySQL is not required).
+3. Visit http://localhost/porchlight/ in your browser.
+
+That's it — no composer install, no database import, no config file to edit.
+
+WHAT'S INSIDE
+-------------
+index.php            Main page: navbar, sidebars, composer, post feed
+includes/data.php     Sample data + session bootstrap (swap for a real DB later)
+includes/icons.php    Inline SVG icon set (no external icon font)
+includes/post-card.php  Shared post template, used by index.php and the API
+api/like.php          AJAX: toggle like on a post
+api/comment.php       AJAX: add a comment to a post
+api/create_post.php   AJAX: create a new post
+css/style.css         All styling and the design tokens (colors, type, spacing)
+js/script.js          All client-side behavior
+
+WHERE TO GO FROM HERE
+----------------------
+- Swap the session-based storage in includes/data.php for MySQL (XAMPP's
+  phpMyAdmin makes this easy) once you want data to persist between visits
+  and across different users.
+- Add real authentication before "You" becomes an actual logged-in user.
+- The right sidebar (trending topics, suggested follows) currently uses
+  static content — wire it up to real queries once there's a database.
