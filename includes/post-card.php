@@ -6,7 +6,7 @@ $hideLikeCount = !empty($GLOBALS['hide_like_counts']);
 $likeCountStyle = $hideLikeCount ? ' style="display: none;"' : '';
 $authorPic = profile_pic_url($post['profile_pic'] ?? null);
 ?>
-<article class="post" data-id="<?= (int) $post['id'] ?>">
+<article class="post" id="post-<?= (int) $post['id'] ?>" data-id="<?= (int) $post['id'] ?>">
   <div class="post-head">
     <?php if ($authorPic !== null): ?>
       <img src="<?= htmlspecialchars($authorPic) ?>" class="avatar" style="object-fit: cover;">

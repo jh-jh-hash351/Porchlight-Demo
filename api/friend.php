@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/security.php';
 require_once __DIR__ . '/../includes/friends.php';
 require_once __DIR__ . '/../includes/messages.php';
+require_once __DIR__ . '/../includes/notifications.php';
 header('Content-Type: application/json');
 
 if (!isset($_SESSION['user'])) {
@@ -48,6 +49,8 @@ if (!$peer) {
 }
 
 try {
+    $previousStatus = friend_status($pdo, $meId, $otherId);
+
     switch ($action) {
         case 'send':
             $status = send_friend_request($pdo, $meId, $otherId);
@@ -61,6 +64,17 @@ try {
         default:
             $status = cancel_friend_request($pdo, $meId, $otherId);
             break;
+    }
+
+    if ($action === 'send' && $status === 'outgoing') {
+        notification_create($pdo, $otherId, $meId, 'friend_request', 0);
+    } elseif ($action === 'cancel') {
+        notification_delete($pdo, $otherId, $meId, 'friend_request', 0);
+    } elseif (($action === 'accept' || $action === 'decline') && $previousStatus === 'incoming') {
+        notification_delete($pdo, $meId, $otherId, 'friend_request', 0);
+        if ($action === 'accept' && $status === 'friends') {
+            notification_create($pdo, $otherId, $meId, 'friend_accept', 0);
+        }
     }
 
     echo json_encode([

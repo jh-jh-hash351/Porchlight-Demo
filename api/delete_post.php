@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/security.php';
+require_once __DIR__ . '/../includes/notifications.php';
 header('Content-Type: application/json');
 
 if (!isset($_SESSION['user'])) {
@@ -49,6 +50,7 @@ if ((int)$post['user_id'] !== $userId) {
 try {
     $stmtDelete = $pdo->prepare('DELETE FROM posts WHERE id = ? AND user_id = ?');
     $stmtDelete->execute([$postId, $userId]);
+    notification_clear_post($pdo, $postId);
 
     $image = $post['image'] ?: '';
     $uploadsDir = realpath(dirname(__DIR__) . '/uploads');

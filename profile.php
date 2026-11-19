@@ -276,5 +276,7 @@ $displayInitials = $profileUser ? initials_for($profileUser['username']) : ($use
             <?php endif; ?>
         </div>
     </div>
+
+    <?php require __DIR__ . '/includes/site-footer.php'; ?>
 </body>
 </html>

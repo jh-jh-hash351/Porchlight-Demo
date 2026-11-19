@@ -4,6 +4,7 @@ require_once __DIR__ . '/includes/security.php';
 require_once __DIR__ . '/includes/auth_guard.php';
 require_once __DIR__ . '/includes/icons.php';
 require_once __DIR__ . '/includes/messages.php';
+require_once __DIR__ . '/includes/message_groups.php';
 require_once __DIR__ . '/includes/friends.php';
 
 require_auth();
@@ -17,7 +18,29 @@ $isFriend = false;
 $messages = [];
 $pageError = '';
 
-if (isset($_GET['with']) && $_GET['with'] !== '') {
+$activeGroup = null;
+$groupMembers = [];
+$groupMessages = [];
+
+$groupRequested = isset($_GET['group']) && $_GET['group'] !== '';
+$groupParam = $groupRequested ? (int)$_GET['group'] : 0;
+
+if ($groupRequested) {
+    if ($groupParam > 0) {
+        $candidateGroup = chat_group_get($pdo, $groupParam);
+        if ($candidateGroup && chat_group_is_member($pdo, $groupParam, $meId)) {
+            $activeGroup = $candidateGroup;
+            $groupMembers = chat_group_members($pdo, $groupParam);
+            $groupMessages = chat_group_messages($pdo, $groupParam);
+            $lastGroupId = $groupMessages ? (int)$groupMessages[count($groupMessages) - 1]['id'] : 0;
+            chat_group_mark_read($pdo, $groupParam, $meId, $lastGroupId);
+        } else {
+            $pageError = 'That group chat is not available.';
+        }
+    } else {
+        $pageError = 'That group chat is not available.';
+    }
+} elseif (isset($_GET['with']) && $_GET['with'] !== '') {
     $peerId = (int)$_GET['with'];
 
     if ($peerId === $meId) {
@@ -40,6 +63,22 @@ if (isset($_GET['with']) && $_GET['with'] !== '') {
 }
 
 $conversations = get_conversations($pdo, $meId);
+$groupChats = chat_group_get_chats($pdo, $meId);
+
+$sidebarItems = [];
+foreach ($conversations as $conversation) {
+    $conversation['kind'] = 'direct';
+    $conversation['sort_time'] = strtotime($conversation['last_time']);
+    $sidebarItems[] = $conversation;
+}
+foreach ($groupChats as $groupChat) {
+    $groupChat['kind'] = 'group';
+    $groupChat['sort_time'] = strtotime($groupChat['last_time'] ?: $groupChat['created_at']);
+    $sidebarItems[] = $groupChat;
+}
+usort($sidebarItems, function (array $a, array $b): int {
+    return $b['sort_time'] <=> $a['sort_time'];
+});
 
 $stmtPeople = $pdo->prepare("SELECT id, username, profile_pic FROM users WHERE status = 'Active' AND id <> ? ORDER BY username ASC");
 $stmtPeople->execute([$meId]);
@@ -57,11 +96,29 @@ usort($people, function (array $a, array $b) use ($friendStatuses): int {
 
 $incomingRequests = get_incoming_requests($pdo, $meId);
 
+$friends = array_values(array_filter($people, function (array $person) use ($friendStatuses): bool {
+    return ($friendStatuses[(int)$person['id']] ?? 'none') === 'friends';
+}));
+
+$activeMessages = $activeGroup ? $groupMessages : $messages;
 $lastMessageId = 0;
-if ($messages) {
-    $lastMessage = $messages[count($messages) - 1];
+if ($activeMessages) {
+    $lastMessage = $activeMessages[count($activeMessages) - 1];
     $lastMessageId = (int)$lastMessage['id'];
 }
+
+$groupMemberNames = array_map(static function (array $member): string {
+    return $member['username'];
+}, $groupMembers);
+$groupMemberLabel = count($groupMembers) . (count($groupMembers) === 1 ? ' member' : ' members');
+if ($groupMemberNames) {
+    $shownNames = array_slice($groupMemberNames, 0, 5);
+    $groupMemberLabel .= ' · ' . implode(', ', $shownNames);
+    if (count($groupMemberNames) > 5) {
+        $groupMemberLabel .= ' +' . (count($groupMemberNames) - 5) . ' more';
+    }
+}
+$groupAvatar = '<div class="conv-avatar group-avatar">' . icon('users') . '</div>';
 
 $avatar = function (array $userRow, string $className): string {
     $pic = message_profile_pic($userRow);
@@ -118,8 +175,19 @@ $avatar = function (array $userRow, string $className): string {
             font-size: 20px;
             margin: 0;
         }
+        .conv-head-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .conv-head-actions .btn {
+            height: 30px;
+            padding: 0 9px;
+            font-size: 12px;
+        }
         .new-message-panel { padding: 0 4px 10px; }
-        .new-message-panel input {
+        .new-message-panel input[type="text"] {
             width: 100%;
             padding: 8px 10px;
             border: 1px solid var(--border);
@@ -130,7 +198,7 @@ $avatar = function (array $userRow, string $className): string {
             font-size: 13px;
             outline: none;
         }
-        .new-message-panel input:focus { border-color: var(--accent); }
+        .new-message-panel input[type="text"]:focus { border-color: var(--accent); }
         .people-results {
             list-style: none;
             margin: 8px 0 0;
@@ -173,6 +241,53 @@ $avatar = function (array $userRow, string $className): string {
             height: 28px;
             padding: 0 10px;
             font-size: 12px;
+        }
+        .group-pick-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin: 12px 4px 4px;
+        }
+        .group-friend-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            max-height: 190px;
+            overflow-y: auto;
+        }
+        .group-friend-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 4px;
+            border-radius: var(--radius-control);
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .group-friend-option:hover { background: var(--surface-muted); }
+        .group-friend-option input { margin: 0; accent-color: var(--accent); }
+        .group-friend-option .conv-avatar { width: 28px; height: 28px; font-size: 10px; }
+        .group-form-footer {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+        .group-form-error {
+            flex: 1;
+            min-width: 110px;
+            font-size: 12px;
+            color: var(--like);
+        }
+        .group-avatar .icon { width: 18px; height: 18px; }
+        .msg-sender {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin: 0 0 3px 4px;
         }
         .fr-panel {
             padding: 0 4px 10px;
@@ -328,9 +443,15 @@ $avatar = function (array $userRow, string $className): string {
             color: var(--text-secondary);
             padding: 0 4px;
         }
-        .chat-head-meta { display: flex; flex-direction: column; min-width: 0; }
+        .chat-head-meta { display: flex; flex-direction: column; min-width: 0; flex: 1; }
         .chat-name { font-weight: 600; font-size: 15px; }
-        .chat-sub { font-size: 12px; color: var(--text-muted); }
+        .chat-sub {
+            font-size: 12px;
+            color: var(--text-muted);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         .chat-scroll {
             flex: 1;
             min-height: 0;
@@ -446,11 +567,14 @@ $avatar = function (array $userRow, string $className): string {
 
     <div class="messenger-wrap">
         <input type="hidden" id="csrfToken" value="<?= generate_csrf_token() ?>">
-        <div class="messenger<?= $peer ? ' has-chat' : '' ?>">
+        <div class="messenger<?= ($peer || $activeGroup) ? ' has-chat' : '' ?>">
             <aside class="conv-panel">
                 <div class="conv-head">
                     <h1>Messages</h1>
-                    <button type="button" class="btn btn-ghost" id="newMessageBtn" style="height: 32px; font-size: 13px;">New message</button>
+                    <div class="conv-head-actions">
+                        <button type="button" class="btn btn-ghost" id="newMessageBtn">New message</button>
+                        <button type="button" class="btn btn-ghost" id="createGroupBtn">Create group</button>
+                    </div>
                 </div>
 
                 <?php if ($incomingRequests): ?>
@@ -500,34 +624,112 @@ $avatar = function (array $userRow, string $className): string {
                     </ul>
                 </div>
 
+                <div class="new-message-panel" id="newGroupPanel" hidden>
+                    <form id="createGroupForm">
+                        <input type="text" id="groupNameInput" name="name" placeholder="Group name" maxlength="60" required>
+                        <p class="group-pick-label">Add friends</p>
+                        <ul class="group-friend-list">
+                            <?php foreach ($friends as $friend): ?>
+                                <li>
+                                    <label class="group-friend-option">
+                                        <input type="checkbox" name="members[]" value="<?= (int)$friend['id'] ?>">
+                                        <?= $avatar($friend, 'conv-avatar') ?>
+                                        <span><?= security_encode($friend['username']) ?></span>
+                                    </label>
+                                </li>
+                            <?php endforeach; ?>
+                            <?php if (!$friends): ?>
+                                <li class="people-empty">No friends yet. Add a friend to start a group chat.</li>
+                            <?php endif; ?>
+                        </ul>
+                        <div class="group-form-footer">
+                            <span class="group-form-error" id="groupFormError"></span>
+                            <button type="submit" class="btn btn-primary" id="createGroupSubmit" <?= !$friends ? 'disabled' : '' ?>>Create group</button>
+                        </div>
+                    </form>
+                </div>
+
                 <ul class="conv-list">
-                    <?php if (!$conversations): ?>
-                        <li class="conv-empty">No conversations yet.<br>Start a new message to say hello.</li>
+                    <?php if (!$sidebarItems): ?>
+                        <li class="conv-empty">No conversations yet.<br>Start a new message or create a group chat.</li>
                     <?php endif; ?>
 
-                    <?php foreach ($conversations as $conversation): ?>
-                        <?php $isActive = $peer && (int)$peer['id'] === (int)$conversation['peer_id']; ?>
-                        <li class="conv-item<?= $isActive ? ' is-active' : '' ?>">
-                            <a href="messages.php?with=<?= (int)$conversation['peer_id'] ?>">
-                                <?= $avatar($conversation, 'conv-avatar') ?>
-                                <div class="conv-meta">
-                                    <div class="conv-top">
-                                        <span class="conv-name"><?= security_encode($conversation['username']) ?></span>
-                                        <span class="conv-time"><?= security_encode(message_list_time($conversation['last_time'])) ?></span>
+                    <?php foreach ($sidebarItems as $item): ?>
+                        <?php if ($item['kind'] === 'group'): ?>
+                            <?php $isActive = $activeGroup && (int)$activeGroup['id'] === (int)$item['id']; ?>
+                            <li class="conv-item<?= $isActive ? ' is-active' : '' ?>">
+                                <a href="messages.php?group=<?= (int)$item['id'] ?>">
+                                    <?= $groupAvatar ?>
+                                    <div class="conv-meta">
+                                        <div class="conv-top">
+                                            <span class="conv-name"><?= security_encode($item['name']) ?></span>
+                                            <span class="conv-time"><?= security_encode(message_list_time($item['last_time'] ?: $item['created_at'])) ?></span>
+                                        </div>
+                                        <div class="conv-preview">
+                                            <?php if ($item['last_message'] !== null): ?>
+                                                <?= (int)$item['last_sender_id'] === $meId ? 'You' : security_encode($item['last_sender_name']) ?>: <?= security_encode($item['last_message']) ?>
+                                            <?php else: ?>
+                                                Group created — say hello
+                                            <?php endif; ?>
+                                        </div>
                                     </div>
-                                    <div class="conv-preview"><?= $conversation['last_sender_id'] === $meId ? 'You: ' : '' ?><?= security_encode($conversation['last_message']) ?></div>
-                                </div>
-                                <?php if ((int)$conversation['unread'] > 0): ?>
-                                    <span class="conv-unread"><?= (int)$conversation['unread'] ?></span>
-                                <?php endif; ?>
-                            </a>
-                        </li>
+                                    <?php if ((int)$item['unread'] > 0): ?>
+                                        <span class="conv-unread"><?= (int)$item['unread'] ?></span>
+                                    <?php endif; ?>
+                                </a>
+                            </li>
+                        <?php else: ?>
+                            <?php $isActive = $peer && !$activeGroup && (int)$peer['id'] === (int)$item['peer_id']; ?>
+                            <li class="conv-item<?= $isActive ? ' is-active' : '' ?>">
+                                <a href="messages.php?with=<?= (int)$item['peer_id'] ?>">
+                                    <?= $avatar($item, 'conv-avatar') ?>
+                                    <div class="conv-meta">
+                                        <div class="conv-top">
+                                            <span class="conv-name"><?= security_encode($item['username']) ?></span>
+                                            <span class="conv-time"><?= security_encode(message_list_time($item['last_time'])) ?></span>
+                                        </div>
+                                        <div class="conv-preview"><?= $item['last_sender_id'] === $meId ? 'You: ' : '' ?><?= security_encode($item['last_message']) ?></div>
+                                    </div>
+                                    <?php if ((int)$item['unread'] > 0): ?>
+                                        <span class="conv-unread"><?= (int)$item['unread'] ?></span>
+                                    <?php endif; ?>
+                                </a>
+                            </li>
+                        <?php endif; ?>
                     <?php endforeach; ?>
                 </ul>
             </aside>
 
             <section class="chat-panel">
-                <?php if ($peer && !$isFriend): ?>
+                <?php if ($activeGroup): ?>
+                    <header class="chat-head">
+                        <a href="messages.php" class="chat-back" aria-label="Back to conversations">&lsaquo;</a>
+                        <div class="chat-avatar group-avatar"><?= icon('users') ?></div>
+                        <div class="chat-head-meta">
+                            <span class="chat-name"><?= security_encode($activeGroup['name']) ?></span>
+                            <span class="chat-sub"><?= security_encode($groupMemberLabel) ?></span>
+                        </div>
+                    </header>
+
+                    <div class="chat-scroll" id="chatScroll" data-last-id="<?= $lastMessageId ?>">
+                        <?php if (!$groupMessages): ?>
+                            <div class="chat-intro">
+                                <p class="chat-intro-title">Welcome to <?= security_encode($activeGroup['name']) ?></p>
+                                <p class="chat-intro-sub">This is the start of the group chat.</p>
+                            </div>
+                        <?php endif; ?>
+
+                        <?php foreach ($groupMessages as $groupMessage): ?>
+                            <?= chat_group_message_html($groupMessage, $meId) ?>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <form class="chat-form" id="groupChatForm" data-group="<?= (int)$activeGroup['id'] ?>">
+                        <input type="hidden" name="csrf_token" value="<?= generate_csrf_token() ?>">
+                        <input type="text" id="chatInput" name="body" placeholder="Message <?= security_encode($activeGroup['name']) ?>..." autocomplete="off" required maxlength="2000">
+                        <button type="submit" class="btn btn-primary">Send</button>
+                    </form>
+                <?php elseif ($peer && !$isFriend): ?>
                     <div class="chat-empty chat-locked">
                         <?= icon('users') ?>
                         <h2>You and <?= security_encode($peer['username']) ?> aren't friends yet</h2>
@@ -573,6 +775,6 @@ $avatar = function (array $userRow, string $className): string {
         </div>
     </div>
 
-    <script src="js/messages.js"></script>
+    <script src="js/messages.js?v=<?= filemtime(__DIR__ . '/js/messages.js') ?>"></script>
 </body>
 </html>

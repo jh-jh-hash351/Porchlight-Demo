@@ -1,7 +1,4 @@
 document.addEventListener('DOMContentLoaded', function () {
-  var navToggle = document.getElementById('navToggle');
-  var sidebarLeft = document.getElementById('sidebarLeft');
-  var overlay = document.getElementById('overlay');
   var postList = document.getElementById('postList');
   var searchInput = document.getElementById('searchInput');
   var emptyState = document.getElementById('emptyState');
@@ -77,19 +74,6 @@ document.addEventListener('DOMContentLoaded', function () {
   function csrfToken() {
     var meta = document.querySelector('meta[name="csrf-token"]');
     return meta ? meta.content : '';
-  }
-
-  // Mobile navigation drawer
-  if (navToggle && sidebarLeft && overlay) {
-    function closeNav() {
-      sidebarLeft.classList.remove('is-open');
-      overlay.classList.remove('is-visible');
-    }
-    navToggle.addEventListener('click', function () {
-      sidebarLeft.classList.toggle('is-open');
-      overlay.classList.toggle('is-visible');
-    });
-    overlay.addEventListener('click', closeNav);
   }
 
   // Client-side search filter
@@ -325,6 +309,107 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // Communities: create, join, leave, approve, decline
+  function readJsonResponse(r) {
+    return r.text().then(function (body) {
+      try {
+        return JSON.parse(body);
+      } catch (err) {
+        return { error: 'Unexpected server response. Please try again.' };
+      }
+    });
+  }
+
+  var communityForm = document.getElementById('communityForm');
+  var communityError = document.getElementById('communityError');
+
+  if (communityForm) {
+    communityForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+
+      if (document.body.dataset.authenticated !== 'true') {
+        window.location.href = 'login.php';
+        return;
+      }
+
+      var submitBtn = communityForm.querySelector('button[type="submit"]');
+      var formData = new FormData(communityForm);
+      formData.append('action', 'create');
+      formData.append('csrf_token', csrfToken());
+      communityError.textContent = '';
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating…';
+
+      fetch('api/community.php', {
+        method: 'POST',
+        body: formData,
+      })
+        .then(readJsonResponse)
+        .then(function (data) {
+          if (data.error) {
+            communityError.textContent = data.error;
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Create community';
+            return;
+          }
+          window.location.reload();
+        })
+        .catch(function () {
+          communityError.textContent = 'Could not create the community. Please try again.';
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Create community';
+        });
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.community-action');
+    if (!btn) return;
+
+    if (document.body.dataset.authenticated !== 'true') {
+      window.location.href = 'login.php';
+      return;
+    }
+
+    if (btn.dataset.confirm && !window.confirm(btn.dataset.confirm)) {
+      return;
+    }
+
+    var body = 'action=' + encodeURIComponent(btn.dataset.action)
+      + '&id=' + encodeURIComponent(btn.dataset.id || '')
+      + '&csrf_token=' + encodeURIComponent(csrfToken());
+    if (btn.dataset.user) {
+      body += '&user_id=' + encodeURIComponent(btn.dataset.user);
+    }
+
+    btn.disabled = true;
+
+    fetch('api/community.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body,
+    })
+      .then(function (r) {
+        if (r.status === 401) {
+          alert('You need an account to do that');
+          return Promise.reject();
+        }
+        return readJsonResponse(r);
+      })
+      .then(function (data) {
+        if (data.error) {
+          alert(data.error);
+          btn.disabled = false;
+          return;
+        }
+        window.location.reload();
+      })
+      .catch(function () {
+        btn.disabled = false;
+      });
+  });
+
   // Location syncing for Local Spots
   var locateBtn = document.getElementById('locateMe');
   var spotsList = document.getElementById('localSpotsList');
@@ -392,5 +477,104 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
   });
+
+  // Explore nearby: pin the area and point category searches at it
+  var exploreLocateBtn = document.getElementById('exploreLocateBtn');
+  var exploreStatus = document.getElementById('exploreLocationStatus');
+  var exploreTitle = document.getElementById('exploreLocationTitle');
+  var exploreMapFrame = document.getElementById('exploreMapFrame');
+  var exploreMapEmpty = document.getElementById('exploreMapEmpty');
+  var exploreMapLink = document.getElementById('exploreMapLink');
+  var exploreCards = document.querySelectorAll('[data-nearby-query]');
+
+  function setExploreStatus(text) {
+    if (exploreStatus) exploreStatus.textContent = text;
+  }
+
+  function showExploreLocation(lat, lng) {
+    setExploreStatus('Showing spots near ' + lat.toFixed(4) + ', ' + lng.toFixed(4) + '.');
+    if (exploreTitle) exploreTitle.textContent = "You're here";
+
+    if (exploreMapFrame) {
+      var d = 0.012;
+      var bbox = [lng - d, lat - d, lng + d, lat + d].join(',');
+      exploreMapFrame.src = 'https://www.openstreetmap.org/export/embed.html?bbox='
+        + encodeURIComponent(bbox)
+        + '&layer=mapnik&marker=' + encodeURIComponent(lat + ',' + lng);
+      exploreMapFrame.hidden = false;
+    }
+    if (exploreMapEmpty) exploreMapEmpty.hidden = true;
+    if (exploreMapLink) {
+      exploreMapLink.href = 'https://www.google.com/maps/@' + lat + ',' + lng + ',15z';
+      exploreMapLink.hidden = false;
+    }
+
+    exploreCards.forEach(function (card) {
+      var query = card.dataset.nearbyQuery || '';
+      card.href = 'https://www.google.com/maps/search/' + encodeURIComponent(query)
+        + '/@' + lat + ',' + lng + ',15z';
+    });
+
+    if (exploreLocateBtn) {
+      exploreLocateBtn.disabled = false;
+      exploreLocateBtn.textContent = 'Update location';
+    }
+
+    try {
+      sessionStorage.setItem('porchlight_nearby', JSON.stringify({ lat: lat, lng: lng, at: Date.now() }));
+    } catch (e) {}
+  }
+
+  function requestExploreLocation() {
+    if (!navigator.geolocation) {
+      setExploreStatus('Location is not supported by this browser. You can still open a category below.');
+      return;
+    }
+
+    if (exploreLocateBtn) {
+      exploreLocateBtn.disabled = true;
+      exploreLocateBtn.textContent = 'Locating…';
+    }
+    setExploreStatus('Looking for your location…');
+
+    navigator.geolocation.getCurrentPosition(
+      function (position) {
+        showExploreLocation(position.coords.latitude, position.coords.longitude);
+      },
+      function (error) {
+        var savedArea = exploreLocateBtn ? (exploreLocateBtn.dataset.savedArea || '') : '';
+        if (exploreTitle) exploreTitle.textContent = savedArea ? 'Your saved area' : "Find what's close";
+        if (error && error.code === 1) {
+          setExploreStatus(savedArea
+            ? 'Location access is blocked. Using your saved area: ' + savedArea + '.'
+            : 'Location access is blocked. Allow it in your browser, then try again.');
+        } else {
+          setExploreStatus(savedArea
+            ? 'We could not get your exact location. Using your saved area: ' + savedArea + '.'
+            : 'We could not get your location. You can still open a category below.');
+        }
+        if (exploreLocateBtn) {
+          exploreLocateBtn.disabled = false;
+          exploreLocateBtn.textContent = 'Try again';
+        }
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
+    );
+  }
+
+  if (exploreLocateBtn) {
+    exploreLocateBtn.addEventListener('click', requestExploreLocation);
+
+    var cachedNearby = null;
+    try {
+      cachedNearby = JSON.parse(sessionStorage.getItem('porchlight_nearby') || 'null');
+    } catch (e) {}
+
+    if (cachedNearby && Date.now() - cachedNearby.at < 30 * 60 * 1000) {
+      showExploreLocation(cachedNearby.lat, cachedNearby.lng);
+    } else {
+      requestExploreLocation();
+    }
+  }
 
 });

@@ -2,12 +2,14 @@
 require_once __DIR__ . '/includes/data.php';
 require_once __DIR__ . '/includes/security.php';
 require_once __DIR__ . '/includes/icons.php';
+require_once __DIR__ . '/includes/notifications.php';
 $posts = get_all_posts();
 
 // Get current user info if logged in
 $user = $_SESSION['user'] ?? null;
 $userName = $user ? $user['username'] : 'Guest';
 $userInitials = $user ? $user['initials'] : '??';
+$unreadNotifications = $user ? count_unread_notifications($pdo, (int)$user['id']) : 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -26,7 +28,7 @@ $userInitials = $user ? $user['initials'] : '??';
 
 <header class="topbar">
   <div class="topbar-inner">
-    <button class="icon-btn nav-toggle" id="navToggle" aria-label="Open navigation"><?= icon('menu') ?></button>
+    <a class="icon-btn nav-toggle" id="navToggle" href="news.php" aria-label="Open Patch Notes"><?= icon('menu') ?></a>
     <a class="brand" href="index.php" style="display: flex; align-items: center; gap: 10px;">
       <img src="images/logo.png" alt="Porchlight Logo" style="height: 32px; width: auto; border-radius: 4px;">
       <span>Porchlight</span>
@@ -44,8 +46,20 @@ $userInitials = $user ? $user['initials'] : '??';
           <span class="icon-moon"><?= icon('moon') ?></span>
         </button>
       <?php else: ?>
-        <button class="icon-btn" aria-label="Notifications"><?= icon('bell') ?></button>
-        <button class="icon-btn" aria-label="Messages"><?= icon('mail') ?></button>
+        <a class="icon-btn notification-bell" href="notifications.php" aria-label="Notifications<?= $unreadNotifications > 0 ? ' (' . $unreadNotifications . ' unread)' : '' ?>">
+          <?= icon('bell') ?>
+          <?php if ($unreadNotifications > 0): ?>
+            <span class="notification-badge"><?= $unreadNotifications > 99 ? '99+' : $unreadNotifications ?></span>
+          <?php endif; ?>
+        </a>
+        <details class="icon-menu">
+          <summary class="icon-btn" aria-label="Email options" title="Email options"><?= icon('mail') ?></summary>
+          <div class="icon-menu-panel">
+            <a href="https://mail.google.com/" target="_blank" rel="noopener noreferrer"><span class="icon-menu-mark">G</span>Google</a>
+            <a href="https://www.linkedin.com/" target="_blank" rel="noopener noreferrer"><span class="icon-menu-mark">in</span>LinkedIn</a>
+            <a href="https://mail.yahoo.com/" target="_blank" rel="noopener noreferrer"><span class="icon-menu-mark">Y</span>Yahoo</a>
+          </div>
+        </details>
         <button class="icon-btn theme-toggle" id="themeToggle" aria-label="Toggle dark mode">
           <span class="icon-sun"><?= icon('sun') ?></span>
           <span class="icon-moon"><?= icon('moon') ?></span>
@@ -149,9 +163,9 @@ $userInitials = $user ? $user['initials'] : '??';
 
 </div>
 
+<?php require __DIR__ . '/includes/site-footer.php'; ?>
+
+<script src="js/dropdown.js?v=<?= filemtime(__DIR__ . '/js/dropdown.js') ?>"></script>
 <script src="js/script.js?v=<?= filemtime(__DIR__ . '/js/script.js') ?>"></script>
-<div style="position: fixed; bottom: 10px; left: 10px; font-size: 11px; color: var(--text-muted); opacity: 0.6; pointer-events: none; z-index: 100;">
-  v0.8
-</div>
 </body>
 </html>

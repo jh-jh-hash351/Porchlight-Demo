@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/preferences.php';
+require_once __DIR__ . '/../includes/notifications.php';
 header('Content-Type: application/json');
 
 // Auth Guard
@@ -55,11 +56,13 @@ try {
         $stmt = $pdo->prepare('DELETE FROM likes WHERE post_id = ? AND user_id = ?');
         $stmt->execute([$postId, $userId]);
         $liked = false;
+        notification_delete($pdo, (int)$post['user_id'], $userId, 'like', (int)$postId);
     } else {
         // Add like
         $stmt = $pdo->prepare('INSERT INTO likes (post_id, user_id) VALUES (?, ?)');
         $stmt->execute([$postId, $userId]);
         $liked = true;
+        notification_create($pdo, (int)$post['user_id'], $userId, 'like', (int)$postId);
     }
 
     // Get total like count

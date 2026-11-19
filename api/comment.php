@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/preferences.php';
 require_once __DIR__ . '/../includes/profile_edit.php';
 require_once __DIR__ . '/../includes/data.php';
+require_once __DIR__ . '/../includes/notifications.php';
 header('Content-Type: application/json');
 
 // Auth Guard
@@ -50,6 +51,7 @@ try {
 
     $stmt = $pdo->prepare('INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)');
     $stmt->execute([$postId, $user['id'], htmlspecialchars($text, ENT_QUOTES, 'UTF-8')]);
+    notification_create($pdo, (int)$post['user_id'], (int)$user['id'], 'comment', (int)$postId);
 
     // Get user's current profile pic
     $stmtPic = $pdo->prepare('SELECT profile_pic FROM users WHERE id = ?');

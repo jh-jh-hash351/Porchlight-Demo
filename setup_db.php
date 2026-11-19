@@ -150,6 +150,80 @@ try {
         CONSTRAINT fk_saves_post FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
     )");
 
+    // 11. Communities Table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS communities (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(80) NOT NULL,
+        description TEXT NOT NULL,
+        join_policy ENUM('open', 'approval') NOT NULL DEFAULT 'open',
+        created_by INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_community_name (name),
+        CONSTRAINT fk_communities_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+    )");
+
+    // 12. Community Members Table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS community_members (
+        community_id INT NOT NULL,
+        user_id INT NOT NULL,
+        role ENUM('admin', 'member') NOT NULL DEFAULT 'member',
+        status ENUM('active', 'pending') NOT NULL DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (community_id, user_id),
+        INDEX idx_cm_user (user_id, status),
+        INDEX idx_cm_status (community_id, status),
+        CONSTRAINT fk_cm_community FOREIGN KEY (community_id) REFERENCES communities(id) ON DELETE CASCADE,
+        CONSTRAINT fk_cm_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )");
+
+    // 13. Chat Groups Table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS chat_groups (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(80) NOT NULL,
+        created_by INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT fk_chat_groups_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+    )");
+
+    // 14. Chat Group Members Table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS chat_group_members (
+        group_id INT NOT NULL,
+        user_id INT NOT NULL,
+        last_read_message_id INT NOT NULL DEFAULT 0,
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (group_id, user_id),
+        INDEX idx_cgm_user (user_id),
+        CONSTRAINT fk_cgm_group FOREIGN KEY (group_id) REFERENCES chat_groups(id) ON DELETE CASCADE,
+        CONSTRAINT fk_cgm_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )");
+
+    // 15. Chat Group Messages Table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS chat_group_messages (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        group_id INT NOT NULL,
+        sender_id INT NOT NULL,
+        body TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_cgmessages_group (group_id, id),
+        CONSTRAINT fk_cgmessages_group FOREIGN KEY (group_id) REFERENCES chat_groups(id) ON DELETE CASCADE,
+        CONSTRAINT fk_cgmessages_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
+    )");
+
+    // 16. Notifications Table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS notifications (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        actor_id INT NULL,
+        type VARCHAR(32) NOT NULL,
+        entity_id INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        read_at DATETIME NULL DEFAULT NULL,
+        INDEX idx_notifications_user (user_id, read_at, id),
+        INDEX idx_notifications_entity (type, entity_id),
+        CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        CONSTRAINT fk_notifications_actor FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
+    )");
+
     // Default Admin User
     $passHash = password_hash('admin123', PASSWORD_DEFAULT);
     $stmt = $pdo->prepare("INSERT INTO users (username, email, password, status) VALUES (?, ?, ?, 'Active') ON DUPLICATE KEY UPDATE password = ?");

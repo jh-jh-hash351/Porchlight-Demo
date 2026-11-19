@@ -95,6 +95,8 @@ $savedPosts = $user ? get_saved_posts($pdo, (int)$user['id']) : [];
         </main>
     </div>
 
+    <?php require __DIR__ . '/includes/site-footer.php'; ?>
+
     <script src="js/script.js"></script>
 </body>
 </html>
